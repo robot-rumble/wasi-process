@@ -247,3 +247,5 @@ impl fmt::Display for SpawnError {
         }
     }
 }
+
+impl std::error::Error for SpawnError {}

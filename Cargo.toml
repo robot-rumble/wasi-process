@@ -17,3 +17,8 @@ wasmer-wasi = "0.17.0"
 typetag = "0.1.5"
 
 serde = "1.0.114"
+
+
+[[example]]
+name = "wasirun"
+required-features = ["tokio/io-std", "tokio/macros"]
