@@ -80,17 +80,18 @@ tokio::task_local! {
     static STDERR: Arc<Mutex<mpsc::Sender<StdinInner>>>;
 }
 
-pin_project! {
-    /// An AsyncWrite type representing a wasi stdin stream.
-    pub struct WasiStdin {
-        tx: Option<mpsc::Sender<StdinInner>>,
-    }
+/// An AsyncWrite type representing a wasi stdin stream.
+pub struct WasiStdin {
+    tx: Option<mpsc::Sender<StdinInner>>,
 }
 
 impl AsyncWrite for WasiStdin {
-    fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
-        let this = self.project();
-        let tx = match this.tx {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        let tx = match &mut self.tx {
             Some(tx) => tx,
             None => {
                 return Poll::Ready(Err(io::Error::new(
@@ -114,8 +115,8 @@ impl AsyncWrite for WasiStdin {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
-        self.project().tx.take().map(drop);
+    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
+        self.tx.take().map(drop);
         Poll::Ready(Ok(()))
     }
 }
