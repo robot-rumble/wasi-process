@@ -23,16 +23,6 @@
 //! # Ok(()) })
 //! # }
 //! ```
-//!
-//! You can also enforce a timeout on the process by calling `tokio::time::timeout` on it:
-//!
-//! ```ignore
-//! use tokio::{task, time};
-//! match time::timeout(time::Duration::from_secs(5), wasi).await {
-//!     Ok(_wasmer_result) => {}
-//!     Err(_timeout) => {}
-//! }
-//! ```
 #![deny(missing_docs)]
 
 use pin_project_lite::pin_project;
