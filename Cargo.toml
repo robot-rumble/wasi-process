@@ -1,6 +1,6 @@
 [package]
 name = "wasi-process"
-version = "0.1.1"
+version = "0.1.2"
 authors = ["Noah <33094578+coolreader18@users.noreply.github.com>"]
 description = "A library to run wasi modules as pseudo-processes"
 repository = "https://github.com/robot-rumble/wasi-process"
