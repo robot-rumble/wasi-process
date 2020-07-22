@@ -59,7 +59,7 @@ pub fn add_stdio(state: &mut WasiStateBuilder) -> &mut WasiStateBuilder {
     state
         .stdin(Box::new(stdio::Stdin))
         .stdout(Box::new(stdio::Stdout))
-        .stderr(Box::new(stdio::Stdout))
+        .stderr(Box::new(stdio::Stderr))
 }
 
 type Buf = Cursor<Vec<u8>>;
