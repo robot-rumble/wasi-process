@@ -1,26 +1,28 @@
 //! A library to run wasi modules as pseudo-processes.
 //!
 //! ```
-//! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! # use tokio::prelude::*; tokio::runtime::Runtime::new().unwrap().block_on(async {
-//! use wasmer_wasi::{WasiVersion, state::WasiState};
+//! # #[tokio::main] async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//! # use tokio::io::AsyncReadExt;
+//! use wasmer_wasi::{WasiEnv, WasiState, WasiVersion};
 //! use wasi_process::WasiProcess;
+//! let store = wasmer::Store::default();
 //! let wasm = include_bytes!("../helloworld.wasm"); // just write(1, "Hello, World!\n", 14)
-//! let module = wasmer_runtime::compile(wasm)?;
+//! let module = wasmer::Module::new(&store, wasm)?;
 //! let mut state = WasiState::new("progg");
 //! wasi_process::add_stdio(&mut state);
 //! state.args(&["foo", "bar"]);
-//! let imports = wasmer_wasi::generate_import_object_from_state(
-//!     state.build()?,
+//! let imports = wasmer_wasi::generate_import_object_from_env(
+//!     &store,
+//!     WasiEnv::new(state.build()?),
 //!     wasmer_wasi::get_wasi_version(&module, false).unwrap_or(WasiVersion::Latest),
 //! );
-//! let mut wasi = WasiProcess::new(module.instantiate(&imports)?);
+//! let mut wasi = WasiProcess::new(&wasmer::Instance::new(&module, &imports)?, 256)?;
 //! let mut stdout = wasi.stdout.take().unwrap();
 //! wasi.spawn();
 //! let mut out = String::new();
 //! stdout.read_to_string(&mut out).await?;
 //! assert_eq!(out, "Hello, World!\n");
-//! # Ok(()) })
+//! # Ok(())
 //! # }
 //! ```
 #![deny(missing_docs)]
@@ -45,8 +47,8 @@ use pipe::LockPipe;
 ///
 /// # Examples
 /// ```
-/// # fn main() -> Result<(), wasmer_wasi::state::WasiStateCreationError> {
-/// use wasmer_wasi::state::WasiState;
+/// # fn main() -> Result<(), wasmer_wasi::WasiStateCreationError> {
+/// use wasmer_wasi::WasiState;
 /// let mut state = WasiState::new("programname");
 /// wasi_process::add_stdio(&mut state);
 /// let state = state.arg("foo").build()?;
@@ -74,20 +76,16 @@ pub struct WasiStdin {
 
 impl AsyncWrite for WasiStdin {
     #[inline]
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context,
-        buf: &[u8],
-    ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(cx, buf)
+    fn poll_write(self: Pin<&mut Self>, cx: &mut Context, buf: &[u8]) -> Poll<io::Result<usize>> {
+        Pin::new(&mut &self.inner).poll_write(cx, buf)
     }
     #[inline]
-    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        Pin::new(&mut &self.inner).poll_flush(cx)
     }
     #[inline]
-    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        Pin::new(&mut &self.inner).poll_shutdown(cx)
     }
 }
 
@@ -97,11 +95,11 @@ pub struct WasiStdout {
 }
 impl AsyncRead for WasiStdout {
     fn poll_read(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut io::ReadBuf,
     ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(cx, buf)
+        Pin::new(&mut &self.inner).poll_read(cx, buf)
     }
 }
 
@@ -111,11 +109,11 @@ pub struct WasiStderr {
 }
 impl AsyncRead for WasiStderr {
     fn poll_read(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut io::ReadBuf,
     ) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(cx, buf)
+        Pin::new(&mut &self.inner).poll_read(cx, buf)
     }
 }
 

@@ -19,7 +19,6 @@ typetag = "0.1.5"
 
 serde = "1.0.114"
 
-
-[[example]]
-name = "wasirun"
-required-features = ["tokio/io-std", "tokio/macros"]
+[dev-dependencies]
+tokio = { version = "1.0", features = ["macros", "io-std"] }
+wasmer = "1.0.0"

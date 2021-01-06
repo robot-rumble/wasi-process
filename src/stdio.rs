@@ -13,10 +13,7 @@ use futures_executor::block_on;
 pub struct Stdin;
 impl Read for Stdin {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        block_on(async {
-            let mut stdin = STDIN.with(Clone::clone);
-            stdin.read(buf).await
-        })
+        STDIN.with(|stdin| block_on((&*stdin).read(buf)))
     }
 }
 impl Seek for Stdin {
@@ -118,10 +115,7 @@ impl Seek for Stdout {
 }
 impl Write for Stdout {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        block_on(async move {
-            let mut stdout = STDOUT.with(Clone::clone);
-            stdout.write(buf).await
-        })
+        STDOUT.with(|stdout| block_on((&*stdout).write(buf)))
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
@@ -194,10 +188,7 @@ impl Seek for Stderr {
 }
 impl Write for Stderr {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        block_on(async move {
-            let mut stderr = STDERR.with(Clone::clone);
-            stderr.write(buf).await
-        })
+        STDERR.with(|stderr| block_on((&*stderr).write(buf)))
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())

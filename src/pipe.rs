@@ -56,6 +56,9 @@ impl Pipe {
         if let Some(waker) = self.read_waker.take() {
             waker.wake();
         }
+        if let Some(waker) = self.write_waker.take() {
+            waker.wake();
+        }
     }
 }
 
@@ -129,7 +132,7 @@ impl LockPipe {
     }
 }
 
-impl AsyncRead for LockPipe {
+impl AsyncRead for &'_ LockPipe {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
@@ -139,7 +142,7 @@ impl AsyncRead for LockPipe {
     }
 }
 
-impl AsyncWrite for LockPipe {
+impl AsyncWrite for &'_ LockPipe {
     fn poll_write(
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
