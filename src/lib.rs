@@ -25,22 +25,21 @@
 //! ```
 #![deny(missing_docs)]
 
-use pin_project_lite::pin_project;
 use std::fmt;
 use std::future::Future;
-use std::io::Cursor;
 use std::pin::Pin;
-use std::sync::Arc;
-use std::sync::Mutex;
 use std::task::{Context, Poll};
-use tokio::prelude::*;
-use tokio::sync::mpsc;
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::{io, task};
-use wasmer_runtime::{error::CallError, Instance};
-use wasmer_wasi::state::WasiStateBuilder;
+use wasmer::RuntimeError;
+use wasmer_wasi::WasiStateBuilder;
 
+mod pipe;
 mod stdio;
+
 pub use stdio::{Stderr, Stdin, Stdout};
+
+use pipe::LockPipe;
 
 /// Use the wasi-process stdio pseudo-files for a wasi environment.
 ///
@@ -62,85 +61,61 @@ pub fn add_stdio(state: &mut WasiStateBuilder) -> &mut WasiStateBuilder {
         .stderr(Box::new(stdio::Stderr))
 }
 
-type Buf = Cursor<Vec<u8>>;
-type StdinInner = io::Result<Buf>;
 tokio::task_local! {
-    static STDIN: Arc<Mutex<io::StreamReader<mpsc::Receiver<StdinInner>, Buf>>>;
-    static STDOUT: Arc<Mutex<mpsc::Sender<StdinInner>>>;
-    static STDERR: Arc<Mutex<mpsc::Sender<StdinInner>>>;
+    static STDIN: LockPipe;
+    static STDOUT: LockPipe;
+    static STDERR: LockPipe;
 }
 
 /// An AsyncWrite type representing a wasi stdin stream.
 pub struct WasiStdin {
-    tx: Option<mpsc::Sender<StdinInner>>,
+    inner: LockPipe,
 }
 
 impl AsyncWrite for WasiStdin {
+    #[inline]
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        let tx = match &mut self.tx {
-            Some(tx) => tx,
-            None => {
-                return Poll::Ready(Err(io::Error::new(
-                    io::ErrorKind::Other,
-                    "called write after shutdown",
-                )))
-            }
-        };
-        tx.poll_ready(cx).map(|res| {
-            let kind = io::ErrorKind::BrokenPipe; // ?
-            res.map_err(|e| io::Error::new(kind, e))
-                .and_then(|()| {
-                    tx.try_send(Ok(Cursor::new(buf.to_owned())))
-                        .map_err(|e| io::Error::new(kind, e))
-                })
-                .map(|()| buf.len())
-        })
+        Pin::new(&mut self.inner).poll_write(cx, buf)
     }
-
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
-        Poll::Ready(Ok(()))
+    #[inline]
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
     }
-
-    fn poll_shutdown(mut self: Pin<&mut Self>, _cx: &mut Context) -> Poll<io::Result<()>> {
-        self.tx.take().map(drop);
-        Poll::Ready(Ok(()))
+    #[inline]
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 
-pin_project! {
-    /// An AsyncRead type representing a wasi stdout stream.
-    pub struct WasiStdout {
-        #[pin]
-        inner: io::StreamReader<mpsc::Receiver<StdinInner>, Buf>,
-    }
+/// An AsyncRead type representing a wasi stdout stream.
+pub struct WasiStdout {
+    inner: LockPipe,
 }
 impl AsyncRead for WasiStdout {
     fn poll_read(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        self.project().inner.poll_read(cx, buf)
+        buf: &mut io::ReadBuf,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
     }
 }
-pin_project! {
-    /// An AsyncRead type representing a wasi stderr stream.
-    pub struct WasiStderr {
-        #[pin]
-        inner: io::StreamReader<mpsc::Receiver<StdinInner>, Buf>,
-    }
+
+/// An AsyncRead type representing a wasi stderr stream.
+pub struct WasiStderr {
+    inner: LockPipe,
 }
 impl AsyncRead for WasiStderr {
     fn poll_read(
-        self: Pin<&mut Self>,
+        mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        self.project().inner.poll_read(cx, buf)
+        buf: &mut io::ReadBuf,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
     }
 }
 
@@ -153,33 +128,40 @@ pub struct WasiProcess {
     pub stdout: Option<WasiStdout>,
     /// An stderr writer for the wasi process
     pub stderr: Option<WasiStderr>,
-    handle: futures::future::BoxFuture<'static, Result<(), CallError>>,
+    handle: Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + Sync>>,
 }
 
 impl WasiProcess {
     /// Create a WasiProcess from a wasm instance. See the crate documentation for more details.
-    pub fn new(instance: Instance) -> Self {
-        let (in_tx, in_rx) = mpsc::channel(5);
-        let (out_tx, out_rx) = mpsc::channel(5);
-        let (err_tx, err_rx) = mpsc::channel(5);
+    /// Errors if the instance doesn't have a `_start` function exported.
+    pub fn new(
+        instance: &wasmer::Instance,
+        max_buf_size: usize,
+    ) -> Result<Self, wasmer::ExportError> {
+        let start = instance.exports.get_function("_start")?.clone();
+        Ok(Self::with_function(start, max_buf_size))
+    }
+
+    /// Create a WasiProcess from a wasm instance, given a `_start` function. See the crate
+    /// documentation for more details.
+    pub fn with_function(start_function: wasmer::Function, max_buf_size: usize) -> Self {
+        let stdin = LockPipe::new(max_buf_size);
+        let stdout = LockPipe::new(max_buf_size);
+        let stderr = LockPipe::new(max_buf_size);
         let handle = STDIN.scope(
-            Arc::new(Mutex::new(io::stream_reader(in_rx))),
+            stdin.clone(),
             STDOUT.scope(
-                Arc::new(Mutex::new(out_tx)),
-                STDERR.scope(Arc::new(Mutex::new(err_tx)), async move {
-                    task::block_in_place(|| instance.call("_start", &[]).map(drop))
+                stdout.clone(),
+                STDERR.scope(stderr.clone(), async move {
+                    task::block_in_place(|| start_function.call(&[]).map(drop))
                 }),
             ),
         );
 
         Self {
-            stdin: Some(WasiStdin { tx: Some(in_tx) }),
-            stdout: Some(WasiStdout {
-                inner: io::stream_reader(out_rx),
-            }),
-            stderr: Some(WasiStderr {
-                inner: io::stream_reader(err_rx),
-            }),
+            stdin: Some(WasiStdin { inner: stdin }),
+            stdout: Some(WasiStdout { inner: stdout }),
+            stderr: Some(WasiStderr { inner: stderr }),
             handle: Box::pin(handle),
         }
     }
@@ -194,26 +176,22 @@ impl WasiProcess {
 }
 
 impl Future for WasiProcess {
-    type Output = Result<(), CallError>;
+    type Output = Result<(), RuntimeError>;
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         self.handle.as_mut().poll(cx)
     }
 }
 
-pin_project! {
-    /// A handle to a spawned a wasi process.
-    #[derive(Debug)]
-    pub struct SpawnHandle {
-        #[pin]
-        inner: tokio::task::JoinHandle<<WasiProcess as Future>::Output>,
-    }
+/// A handle to a spawned a wasi process.
+#[derive(Debug)]
+pub struct SpawnHandle {
+    inner: tokio::task::JoinHandle<<WasiProcess as Future>::Output>,
 }
 
 impl Future for SpawnHandle {
     type Output = Result<(), SpawnError>;
-    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        self.project()
-            .inner
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        Pin::new(&mut self.inner)
             .poll(cx)
             .map(|res| res.map_err(SpawnError::Join)?.map_err(SpawnError::Wasi))
     }
@@ -224,7 +202,7 @@ impl Future for SpawnHandle {
 #[derive(Debug)]
 pub enum SpawnError {
     /// An error received from wasmer
-    Wasi(CallError),
+    Wasi(RuntimeError),
     /// An error from `tokio::task::spawn`
     Join(tokio::task::JoinError),
 }

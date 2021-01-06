@@ -1,14 +1,12 @@
-use futures::executor::block_on;
 use serde::{Deserialize, Serialize};
 use std::io::{prelude::*, SeekFrom};
-use tokio::io;
-use tokio::prelude::*;
-use wasmer_wasi::{
-    state::{WasiFile, WasiFsError},
-    types as wasi_types,
-};
+use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use wasmer_wasi::{types as wasi_types, WasiFile, WasiFsError};
 
 use super::{STDERR, STDIN, STDOUT};
+
+// TODO: replace with tokio::runtime::Handle::current().block_on() if that's ever added
+use futures_executor::block_on;
 
 /// The stdin pseudo-file for wasi processes.
 #[derive(Debug, Serialize, Deserialize)]
@@ -16,8 +14,7 @@ pub struct Stdin;
 impl Read for Stdin {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         block_on(async {
-            let stdin = STDIN.with(Clone::clone);
-            let mut stdin = stdin.lock().unwrap();
+            let mut stdin = STDIN.with(Clone::clone);
             stdin.read(buf).await
         })
     }
@@ -122,13 +119,8 @@ impl Seek for Stdout {
 impl Write for Stdout {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         block_on(async move {
-            let stdout = STDOUT.with(Clone::clone);
-            let mut stdout = stdout.lock().unwrap();
-            stdout
-                .send(Ok(std::io::Cursor::new(buf.to_owned())))
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e))?;
-            Ok(buf.len())
+            let mut stdout = STDOUT.with(Clone::clone);
+            stdout.write(buf).await
         })
     }
     fn flush(&mut self) -> io::Result<()> {
@@ -203,13 +195,8 @@ impl Seek for Stderr {
 impl Write for Stderr {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         block_on(async move {
-            let stderr = STDERR.with(Clone::clone);
-            let mut stderr = stderr.lock().unwrap();
-            stderr
-                .send(Ok(std::io::Cursor::new(buf.to_owned())))
-                .await
-                .map_err(|e| io::Error::new(io::ErrorKind::BrokenPipe, e))?;
-            Ok(buf.len())
+            let mut stderr = STDERR.with(Clone::clone);
+            stderr.write(buf).await
         })
     }
     fn flush(&mut self) -> io::Result<()> {
