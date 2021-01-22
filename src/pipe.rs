@@ -2,7 +2,7 @@
 //! the backing data structure behind DuplexStream
 
 use parking_lot::Mutex;
-use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::io::{self, AsyncRead, AsyncWrite, ReadBuf};
 
 use bytes::{Buf, BytesMut};
 use std::{
@@ -53,6 +53,9 @@ impl Pipe {
 
     fn close(&mut self) {
         self.is_closed = true;
+        if !self.buffer.has_remaining() {
+            std::mem::take(&mut self.buffer);
+        }
         if let Some(waker) = self.read_waker.take() {
             waker.wake();
         }
@@ -67,7 +70,7 @@ impl AsyncRead for Pipe {
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    ) -> Poll<io::Result<()>> {
         if self.buffer.has_remaining() {
             let max = self.buffer.remaining().min(buf.remaining());
             buf.put_slice(&self.buffer[..max]);
@@ -81,6 +84,7 @@ impl AsyncRead for Pipe {
             }
             Poll::Ready(Ok(()))
         } else if self.is_closed {
+            std::mem::take(&mut self.buffer);
             Poll::Ready(Ok(()))
         } else {
             self.read_waker = Some(cx.waker().clone());
@@ -94,7 +98,7 @@ impl AsyncWrite for Pipe {
         mut self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
         buf: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
+    ) -> Poll<io::Result<usize>> {
         if self.is_closed {
             return Poll::Ready(Err(std::io::ErrorKind::BrokenPipe.into()));
         }
@@ -112,14 +116,11 @@ impl AsyncWrite for Pipe {
         Poll::Ready(Ok(len))
     }
 
-    fn poll_flush(self: Pin<&mut Self>, _: &mut task::Context<'_>) -> Poll<std::io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, _: &mut task::Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        _: &mut task::Context<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, _: &mut task::Context<'_>) -> Poll<io::Result<()>> {
         self.close();
         Poll::Ready(Ok(()))
     }
@@ -137,7 +138,7 @@ impl AsyncRead for &'_ LockPipe {
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
         buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    ) -> Poll<io::Result<()>> {
         Pin::new(&mut *self.inner.lock()).poll_read(cx, buf)
     }
 }
@@ -147,18 +148,15 @@ impl AsyncWrite for &'_ LockPipe {
         self: Pin<&mut Self>,
         cx: &mut task::Context<'_>,
         buf: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
+    ) -> Poll<io::Result<usize>> {
         Pin::new(&mut *self.inner.lock()).poll_write(cx, buf)
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<std::io::Result<()>> {
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut *self.inner.lock()).poll_flush(cx)
     }
 
-    fn poll_shutdown(
-        self: Pin<&mut Self>,
-        cx: &mut task::Context<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut *self.inner.lock()).poll_shutdown(cx)
     }
 }

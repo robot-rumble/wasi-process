@@ -16,7 +16,8 @@
 //!     WasiEnv::new(state.build()?),
 //!     wasmer_wasi::get_wasi_version(&module, false).unwrap_or(WasiVersion::Latest),
 //! );
-//! let mut wasi = WasiProcess::new(&wasmer::Instance::new(&module, &imports)?, 256)?;
+//! let instance = wasmer::Instance::new(&module, &imports)?;
+//! let mut wasi = WasiProcess::new(&instance, wasi_process::MaxBufSize::default())?;
 //! let mut stdout = wasi.stdout.take().unwrap();
 //! wasi.spawn();
 //! let mut out = String::new();
@@ -129,23 +130,46 @@ pub struct WasiProcess {
     handle: Pin<Box<dyn Future<Output = Result<(), RuntimeError>> + Send + Sync>>,
 }
 
+/// A struct to configure the sizes of the internal buffers used for stdio.
+#[derive(Debug, Copy, Clone)]
+pub struct MaxBufSize {
+    /// The maximum size of the internal buffer for stdin
+    pub stdin: usize,
+    /// The maximum size of the internal buffer for stdout
+    pub stdout: usize,
+    /// The maximum size of the internal buffer for stderr
+    pub stderr: usize,
+}
+
+const DEFAULT_BUF_SIZE: usize = 1024;
+
+impl Default for MaxBufSize {
+    fn default() -> Self {
+        MaxBufSize {
+            stdin: DEFAULT_BUF_SIZE,
+            stdout: DEFAULT_BUF_SIZE,
+            stderr: DEFAULT_BUF_SIZE,
+        }
+    }
+}
+
 impl WasiProcess {
     /// Create a WasiProcess from a wasm instance. See the crate documentation for more details.
-    /// Errors if the instance doesn't have a `_start` function exported.
+    /// Returns an error if the instance doesn't have a `_start` function exported.
     pub fn new(
         instance: &wasmer::Instance,
-        max_buf_size: usize,
+        buf_size: MaxBufSize,
     ) -> Result<Self, wasmer::ExportError> {
         let start = instance.exports.get_function("_start")?.clone();
-        Ok(Self::with_function(start, max_buf_size))
+        Ok(Self::with_function(start, buf_size))
     }
 
     /// Create a WasiProcess from a wasm instance, given a `_start` function. See the crate
     /// documentation for more details.
-    pub fn with_function(start_function: wasmer::Function, max_buf_size: usize) -> Self {
-        let stdin = LockPipe::new(max_buf_size);
-        let stdout = LockPipe::new(max_buf_size);
-        let stderr = LockPipe::new(max_buf_size);
+    pub fn with_function(start_function: wasmer::Function, buf_size: MaxBufSize) -> Self {
+        let stdin = LockPipe::new(buf_size.stdin);
+        let stdout = LockPipe::new(buf_size.stdout);
+        let stderr = LockPipe::new(buf_size.stderr);
         let handle = STDIN.scope(
             stdin.clone(),
             STDOUT.scope(

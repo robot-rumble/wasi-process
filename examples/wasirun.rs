@@ -15,7 +15,7 @@ fn start_wasi_process(store: &wasmer::Store) -> Result<WasiProcess, Error> {
     let version = wasmer_wasi::get_wasi_version(&module, false).unwrap_or(WasiVersion::Latest);
     let imports = wasmer_wasi::generate_import_object_from_env(&store, env, version);
     let instance = wasmer::Instance::new(&module, &imports)?;
-    let wasi = WasiProcess::new(&instance, 256)?;
+    let wasi = WasiProcess::new(&instance, wasi_process::MaxBufSize::default())?;
     Ok(wasi)
 }
 
