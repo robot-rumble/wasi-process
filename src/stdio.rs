@@ -1,19 +1,17 @@
 use serde::{Deserialize, Serialize};
 use std::io::{prelude::*, SeekFrom};
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
+use tokio::runtime::Handle;
 use wasmer_wasi::{types as wasi_types, WasiFile, WasiFsError};
 
 use super::{STDERR, STDIN, STDOUT};
-
-// TODO: replace with tokio::runtime::Handle::current().block_on() if that's ever added
-use futures_executor::block_on;
 
 /// The stdin pseudo-file for wasi processes.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Stdin;
 impl Read for Stdin {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        STDIN.with(|stdin| block_on((&*stdin).read(buf)))
+        STDIN.with(|stdin| Handle::current().block_on((&*stdin).read(buf)))
     }
 }
 impl Seek for Stdin {
@@ -115,7 +113,7 @@ impl Seek for Stdout {
 }
 impl Write for Stdout {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        STDOUT.with(|stdout| block_on((&*stdout).write(buf)))
+        STDOUT.with(|stdout| Handle::current().block_on((&*stdout).write(buf)))
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
@@ -188,7 +186,7 @@ impl Seek for Stderr {
 }
 impl Write for Stderr {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        STDERR.with(|stderr| block_on((&*stderr).write(buf)))
+        STDERR.with(|stderr| Handle::current().block_on((&*stderr).write(buf)))
     }
     fn flush(&mut self) -> io::Result<()> {
         Ok(())
