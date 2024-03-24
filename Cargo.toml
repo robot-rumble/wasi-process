@@ -12,12 +12,12 @@ tokio = { version = "1.4", features = ["io-util", "rt", "rt-multi-thread"] }
 parking_lot = "0.11"
 bytes = "1.0"
 
-wasmer = { version = "1.0.0", default-features = false }
-wasmer-wasi = "1.0.0"
+wasmer = { version = "2.0.0", default-features = false }
+wasmer-wasi = "2.0.0"
 typetag = "0.1.5"
 
 serde = "1.0.114"
 
 [dev-dependencies]
 tokio = { version = "1.4", features = ["macros", "io-std"] }
-wasmer = "1.0.0"
+wasmer = "2.0.0"
