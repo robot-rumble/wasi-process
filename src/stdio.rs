@@ -46,7 +46,6 @@ impl Write for Stdin {
     }
 }
 
-#[typetag::serde(name = "tokio_process_stdin")]
 impl WasiFile for Stdin {
     fn last_accessed(&self) -> u64 {
         0
@@ -70,10 +69,6 @@ impl WasiFile for Stdin {
 
     fn bytes_available(&self) -> Result<usize, WasiFsError> {
         Ok(0)
-    }
-
-    fn get_raw_fd(&self) -> Option<i32> {
-        None
     }
 }
 
@@ -120,7 +115,6 @@ impl Write for Stdout {
     }
 }
 
-#[typetag::serde(name = "tokio_process_stdout")]
 impl WasiFile for Stdout {
     fn last_accessed(&self) -> u64 {
         0
@@ -143,10 +137,6 @@ impl WasiFile for Stdout {
 
     fn bytes_available(&self) -> Result<usize, WasiFsError> {
         Err(WasiFsError::InvalidInput)
-    }
-
-    fn get_raw_fd(&self) -> Option<i32> {
-        None
     }
 }
 
@@ -193,7 +183,6 @@ impl Write for Stderr {
     }
 }
 
-#[typetag::serde(name = "tokio_process_stderr")]
 impl WasiFile for Stderr {
     fn last_accessed(&self) -> u64 {
         0
@@ -216,9 +205,5 @@ impl WasiFile for Stderr {
 
     fn bytes_available(&self) -> Result<usize, WasiFsError> {
         Err(WasiFsError::InvalidInput)
-    }
-
-    fn get_raw_fd(&self) -> Option<i32> {
-        None
     }
 }

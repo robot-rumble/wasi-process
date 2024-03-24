@@ -14,7 +14,6 @@ bytes = "1.0"
 
 wasmer = { version = "2.0.0", default-features = false }
 wasmer-wasi = "2.0.0"
-typetag = "0.1.5"
 
 serde = "1.0.114"
 
