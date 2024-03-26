@@ -34,7 +34,7 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::{io, task};
-use wasmer::RuntimeError;
+use wasmer::{RuntimeError, AsStoreMut};
 use wasmer_wasi::WasiStateBuilder;
 
 mod pipe;
@@ -157,7 +157,7 @@ impl WasiProcess {
     /// Create a WasiProcess from a wasm instance. See the crate documentation for more details.
     /// Returns an error if the instance doesn't have a `_start` function exported.
     pub fn new(
-        store: wasmer::Store,
+        store: &'static mut (impl AsStoreMut + std::marker::Send + std::marker::Sync),
         instance: &wasmer::Instance,
         buf_size: MaxBufSize,
     ) -> Result<Self, wasmer::ExportError> {
@@ -167,7 +167,7 @@ impl WasiProcess {
 
     /// Create a WasiProcess from a wasm instance, given a `_start` function. See the crate
     /// documentation for more details.
-    pub fn with_function(mut store: wasmer::Store, start_function: wasmer::Function, buf_size: MaxBufSize) -> Self {
+    pub fn with_function(store: &'static mut (impl AsStoreMut + std::marker::Send + std::marker::Sync), start_function: wasmer::Function, buf_size: MaxBufSize) -> Self {
         let stdin = LockPipe::new(buf_size.stdin);
         let stdout = LockPipe::new(buf_size.stdout);
         let stderr = LockPipe::new(buf_size.stderr);
@@ -176,7 +176,7 @@ impl WasiProcess {
             STDOUT.scope(
                 stdout.clone(),
                 STDERR.scope(stderr.clone(), async move {
-                    task::block_in_place(|| start_function.call(&mut store, &[]).map(drop))
+                    task::block_in_place(|| start_function.call(store, &[]).map(drop))
                 }),
             ),
         );
