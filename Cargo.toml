@@ -1,22 +1,23 @@
 [package]
 name = "wasi-process2"
-version = "0.3.2"
+version = "0.3.3"
 authors = ["Noa <coolreader18@gmail.com>", "Anton <antonoutkine@gmail.com>"]
 description = "A library to run wasi modules as pseudo-processes"
 repository = "https://github.com/robot-rumble/wasi-process"
 license = "MIT"
 edition = "2018"
+# https://github.com/wasmerio/wasmer/issues/3377
+resolver = "2"
 
 [dependencies]
 tokio = { version = "1.4", features = ["io-util", "rt", "rt-multi-thread"] }
 parking_lot = "0.11"
 bytes = "1.0"
 
-wasmer = { version = "2.0.0", default-features = false }
-wasmer-wasi = "2.0.0"
+wasmer = { version = "3", default-features = false }
+wasmer-wasi = "3"
 
-serde = "1.0.114"
+serde = { version = "1.0.114", features = ["derive"] }
 
 [dev-dependencies]
 tokio = { version = "1.4", features = ["macros", "io-std"] }
-wasmer = "2.0.0"

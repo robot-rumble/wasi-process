@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{prelude::*, SeekFrom};
 use tokio::io::{self, AsyncReadExt, AsyncWriteExt};
 use tokio::runtime::Handle;
-use wasmer_wasi::{types as wasi_types, WasiFile, WasiFsError};
+use wasmer_wasi::{WasiFile, WasiFsError};
 
 use super::{STDERR, STDIN, STDOUT};
 
@@ -59,7 +59,7 @@ impl WasiFile for Stdin {
     fn size(&self) -> u64 {
         0
     }
-    fn set_len(&mut self, _new_size: wasi_types::__wasi_filesize_t) -> Result<(), WasiFsError> {
+    fn set_len(&mut self, _new_size: u64) -> Result<(), WasiFsError> {
         Err(WasiFsError::PermissionDenied)
     }
 
@@ -128,7 +128,7 @@ impl WasiFile for Stdout {
     fn size(&self) -> u64 {
         0
     }
-    fn set_len(&mut self, _new_size: wasi_types::__wasi_filesize_t) -> Result<(), WasiFsError> {
+    fn set_len(&mut self, _new_size: u64) -> Result<(), WasiFsError> {
         Err(WasiFsError::PermissionDenied)
     }
     fn unlink(&mut self) -> Result<(), WasiFsError> {
@@ -196,7 +196,7 @@ impl WasiFile for Stderr {
     fn size(&self) -> u64 {
         0
     }
-    fn set_len(&mut self, _new_size: wasi_types::__wasi_filesize_t) -> Result<(), WasiFsError> {
+    fn set_len(&mut self, _new_size: u64) -> Result<(), WasiFsError> {
         Err(WasiFsError::PermissionDenied)
     }
     fn unlink(&mut self) -> Result<(), WasiFsError> {

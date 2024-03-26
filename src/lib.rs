@@ -157,16 +157,17 @@ impl WasiProcess {
     /// Create a WasiProcess from a wasm instance. See the crate documentation for more details.
     /// Returns an error if the instance doesn't have a `_start` function exported.
     pub fn new(
+        store: wasmer::Store,
         instance: &wasmer::Instance,
         buf_size: MaxBufSize,
     ) -> Result<Self, wasmer::ExportError> {
         let start = instance.exports.get_function("_start")?.clone();
-        Ok(Self::with_function(start, buf_size))
+        Ok(Self::with_function(store, start, buf_size))
     }
 
     /// Create a WasiProcess from a wasm instance, given a `_start` function. See the crate
     /// documentation for more details.
-    pub fn with_function(start_function: wasmer::Function, buf_size: MaxBufSize) -> Self {
+    pub fn with_function(mut store: wasmer::Store, start_function: wasmer::Function, buf_size: MaxBufSize) -> Self {
         let stdin = LockPipe::new(buf_size.stdin);
         let stdout = LockPipe::new(buf_size.stdout);
         let stderr = LockPipe::new(buf_size.stderr);
@@ -175,7 +176,7 @@ impl WasiProcess {
             STDOUT.scope(
                 stdout.clone(),
                 STDERR.scope(stderr.clone(), async move {
-                    task::block_in_place(|| start_function.call(&[]).map(drop))
+                    task::block_in_place(|| start_function.call(&mut store, &[]).map(drop))
                 }),
             ),
         );
